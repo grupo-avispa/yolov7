@@ -2,22 +2,41 @@ import argparse
 import time
 from pathlib import Path
 
+
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
 from numpy import random
 
 from models.experimental import attempt_load
-from utils.datasets import LoadStreams, LoadImages
+from utils.datasets import LoadWebcam, LoadImages
 from utils.general import check_img_size, check_requirements, check_imshow, non_max_suppression, apply_classifier, \
     scale_coords, xyxy2xywh, strip_optimizer, set_logging, increment_path
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
 
+#import  pyexiv2
+import os
+
+def count(founded_classes,im0):
+  model_values=[]
+  aligns=im0.shape
+  align_bottom=aligns[0]
+  align_right=(aligns[1]/1.7 ) 
+
+  for i, (k, v) in enumerate(founded_classes.items()):
+    a=f"{k} = {v}"
+    model_values.append(v)
+    align_bottom=align_bottom-35                                                   
+    cv2.putText(im0, str(a) ,(int(align_right),align_bottom), cv2.FONT_HERSHEY_SIMPLEX, 1,(45,255,255),1,cv2.LINE_AA)
+
+
+  
 
 def detect(save_img=False):
     source, weights, view_img, save_txt, imgsz, trace = opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size, not opt.no_trace
     save_img = not opt.nosave and not source.endswith('.txt')  # save inference images
+    register = False
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
         ('rtsp://', 'rtmp://', 'http://', 'https://'))
 
@@ -34,6 +53,7 @@ def detect(save_img=False):
     model = attempt_load(weights, map_location=device)  # load FP32 model
     stride = int(model.stride.max())  # model stride
     imgsz = check_img_size(imgsz, s=stride)  # check img_size
+    
 
     if trace:
         model = TracedModel(model, device, opt.img_size)
@@ -47,12 +67,14 @@ def detect(save_img=False):
         modelc = load_classifier(name='resnet101', n=2)  # initialize
         modelc.load_state_dict(torch.load('weights/resnet101.pt', map_location=device)['model']).to(device).eval()
 
+
     # Set Dataloader
     vid_path, vid_writer = None, None
     if webcam:
         view_img = check_imshow()
-        cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams(source, img_size=imgsz, stride=stride)
+        #cudnn.benchmark = True  # set True to speed up constant image size inference
+        #dataset = LoadStreams(source, img_size=imgsz, stride=stride)
+        dataset = LoadWebcam(source, img_size=imgsz, stride=stride)
     else:
         dataset = LoadImages(source, img_size=imgsz, stride=stride)
 
@@ -67,6 +89,8 @@ def detect(save_img=False):
     old_img_b = 1
 
     t0 = time.time()
+    archivo=open(str(save_dir)+"log.txt",'w')
+    #l = [dataset.__next__]
     for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -96,27 +120,43 @@ def detect(save_img=False):
         if classify:
             pred = apply_classifier(pred, modelc, img, im0s)
 
+        
         # Process detections
         for i, det in enumerate(pred):  # detections per image
-            if webcam:  # batch_size >= 1
+            if False:  # batch_size >= 1
                 p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
+                x = ''
             else:
-                p, s, im0, frame = path, '', im0s, getattr(dataset, 'frame', 0)
+                p, s, x, im0, frame = path, '',' ', im0s, getattr(dataset, 'frame', 0)
 
             p = Path(p)  # to Path
             save_path = str(save_dir / p.name)  # img.jpg
-            txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
+            #txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
+            txt_path = str(save_dir / 'labels' / p.stem) + (f'_{frame}')  # img.txt
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
-
+                
+                cont = [0,0,0]
+                founded_classes ={}
                 # Print results
                 for c in det[:, -1].unique():
-                    n = (det[:, -1] == c).sum()  # detections per class
+                    n = (det[:, -1] == c).sum()  # detections per class                
+                    class_index=int(c)
+                    count_of_object=int(n)
+                    
+                    cont[int(c)] = int(n)
+                    founded_classes[names[class_index]]=int(n)
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
+                    x += f"{n},{names[int(c)]},"
+                    if register: #ASFfo
+                        count(founded_classes=founded_classes,im0=im0)  # Applying counter function
+
+            
 
                 # Write results
+                
                 for *xyxy, conf, cls in reversed(det):
                     if save_txt:  # Write to file
                         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
@@ -127,6 +167,22 @@ def detect(save_img=False):
                     if save_img or view_img:  # Add bbox to image
                         label = f'{names[int(cls)]} {conf:.2f}'
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=1)
+            
+
+
+
+            if register: #ASF
+                #-----------------------------------------
+                # Get date of the image
+                #-----------------------------------------
+                img = pyexiv2.Image(path)
+                date = img.read_exif()['Exif.Photo.DateTimeOriginal']
+
+                # #----------------------------------------
+                # # Save in a file: Date P_sen P_tumb P_Depie
+                archivo.write(date+f';{cont[0]};{cont[1]};{cont[2]}'+'\n')
+                print(cont)
+
 
             # Print time (inference + NMS)
             print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS')
@@ -138,7 +194,7 @@ def detect(save_img=False):
 
             # Save results (image with detections)
             if save_img:
-                if dataset.mode == 'image':
+                if True:
                     cv2.imwrite(save_path, im0)
                     print(f" The image with the result is saved in: {save_path}")
                 else:  # 'video' or 'stream'
@@ -155,19 +211,22 @@ def detect(save_img=False):
                             save_path += '.mp4'
                         vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                     vid_writer.write(im0)
+        
+
 
     if save_txt or save_img:
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ''
-        #print(f"Results saved to {save_dir}{s}")
+        print(f"Results saved to {save_dir}{s}")
 
     print(f'Done. ({time.time() - t0:.3f}s)')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', nargs='+', type=str, default='yolov7.pt', help='model.pt path(s)')
-    parser.add_argument('--source', type=str, default='inference/images', help='source')  # file/folder, 0 for webcam
-    parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
+    parser.add_argument('--weights', nargs='+', type=str, default='best.pt', help='model.pt path(s)')
+    parser.add_argument('--source', type=str, default='OT1225900_cropped_1.jpg', help='source')  # file/folder, 0 for webcam ASF:Dataset/images/test/  -fgl
+    #parser.add_argument('--source', type=str, default='0', help='source')  # file/folder, 0 for webcam ASF:Dataset/images/test/  -fgl
+    parser.add_argument('--img-size', type=int, default=1280, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.25, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='IOU threshold for NMS')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
@@ -179,10 +238,11 @@ if __name__ == '__main__':
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--update', action='store_true', help='update all models')
-    parser.add_argument('--project', default='runs/detect', help='save results to project/name')
-    parser.add_argument('--name', default='exp', help='save results to project/name')
+    parser.add_argument('--project', default='runs/detect/datos_predictor', help='save results to project/name')  # fgl
+    parser.add_argument('--name', default='prueba', help='save results to project/name')                          # fgl
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
+    #parser.add_argument('--registro', action='store_true', help='take log of detection and date')
     opt = parser.parse_args()
     print(opt)
     #check_requirements(exclude=('pycocotools', 'thop'))

@@ -1,0 +1,17 @@
+Deteccion
+1º Escribir el path en del archivo o carpeta en la linea 218 de detect.py (escribir '0' para usar webcam)
+2º Escribir el path de salida de la deteccion en la linea 231 de detect.py
+3º Escribir el nombre de la deteccion en la linea 232 de detect.py
+4º Para ejecutar con el contador, escribir en cmd: "python detect.py --registro" o botón ejecutar de Visual Code o Pycharm
+
+Entrenamiento
+1º En el archivo data/custom.yaml, escribir el archivo o directorio de los labels
+2º Escribir el path de salida del entrenamiento en la linea 552 de train.py
+3º Escribir el nombre del entrenamiento en la linea 554 de train.py
+4º Para ejecutar, escribir en cmd: "python train.py" o botón ejecutar de Visual Code o Pycharm
+
+
+
+Predictor
+1º Escribir el path del log de salida del detector en parametro path de la linea 16 de predictor.py
+2º Para ejecutar, escribir en cmd: "python predictor.py" o botón ejecutar de Visual Code o Pycharm
